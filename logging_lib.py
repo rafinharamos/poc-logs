@@ -81,7 +81,7 @@ def _is_sensitive_key(key: str) -> bool:
 def _mask_string(s: str) -> str:
     if not s:
         return s
-    if BEARER_RE.match(s) or JWT_RE.search(s) or len(s) >= 24:
+    if BEARER_RE.match(s) or JWT_RE.search(s):
         return "Bearer " + REDACTED if s.strip().lower().startswith("bearer ") else REDACTED
     return s
 
@@ -111,6 +111,15 @@ def sanitize_query_params(request: Request) -> str:
         items.append((k, v_sanitized))
     return f"{request.url.path}?{urlencode(items)}"
 
+def sanitize_headers(headers) -> Dict[str, str]:
+    items = headers.items() if hasattr(headers, "items") else list(headers or [])
+    out: Dict[str, str] = {}
+    for k, v in items:
+        k_str = k.decode("latin1") if isinstance(k, (bytes, bytearray)) else str(k)
+        v_str = v.decode("latin1") if isinstance(v, (bytes, bytearray)) else str(v)
+        k_lower = k_str.lower()
+        out[k_lower] = REDACTED if _is_sensitive_key(k_lower) else _mask_string(v_str)
+    return out
 
 class RouterLoggingMiddleware(BaseHTTPMiddleware):
     def __init__(
@@ -176,6 +185,7 @@ class RouterLoggingMiddleware(BaseHTTPMiddleware):
             "method": request.method,
             "path": path,
             "ip": _client_ip_from(request),
+            "headers": sanitize_headers(request.headers),
         }
         try:
             body = await request.json()
